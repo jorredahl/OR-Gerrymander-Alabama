@@ -1,4 +1,5 @@
 path,name,metadata,description
 raw/public/districts.gpkg:precincts20,2020 voting precincts,precincts20.md; redistrictingdatahub_legal.txt; al_vest_20_validation_report.pdf,Voting precincts with 2020 election results
 raw/public/districts.gpkg:districts21,,,
-raw/public/districts.gpkg:districts23,,,
+raw/public/districts.gpkg:districts23,2023 congressional district plan,districts23.md,Alabama congressional district plan made in 2023 approved for use in 2024
+raw/public/block_groups.gpkg:districts23,2020 census block groups,blockgroups2020.md,Block group demographic data gathered from the 2020 census
