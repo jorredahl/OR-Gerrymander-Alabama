@@ -34,23 +34,24 @@ This is an original study based on literature on gerrymandering metrics.
 
 It is an exploratory study to evaluate usefulness of a new gerrymandering metric based on the convex hull of a congressional district and the representativeness inside the convex hull compared to the congressional district.
 
-Describe how the study relates to prior literature, e.g. is it a **original study**, **meta-analysis study**, **reproduction study**, **reanalysis study**, or **replication study**?
-
-Also describe the original study archetype, e.g. is it **observational**, **experimental**, **quasi-experimental**, or **exploratory**?
-
-Enumerate specific **hypotheses** to be tested or **research questions** to be investigated here, and specify the type of method, statistical test or model to be used on the hypothesis or question.
-
 # Materials and procedure
 
 ## Computational environment
 
-I plan on using ... package for ...
+I plan on using:
+  - the `tidyverse` package for general dataset processing
+  - the `here` package for file locations
+  - the `sf` package for spatial processing
+  - the `tmap` package for displaying data
+  - the `tidycensus` package for gathering census data
+  - the `lwgeom` package for minimum bounding circles
+  - the `knitr` package for better table displays
 
-```{r environment-setup, include = FALSE, eval = FALSE, echo = TRUE}
+```{r environment-setup, include = FALSE, echo = TRUE}
 # record all the packages you are using here
 # this includes any calls to library(), require(),
 # and double colons such as here::i_am()
-packages <- c("tidyverse", "here", "sf", "tmap", "tidycensus", "lwgeom")
+packages <- c("tidyverse", "here", "sf", "tmap", "tidycensus", "lwgeom", "knitr")
 
 # force all conflicts to become errors
 # if you load dplyr and use filter(), R has to guess whether you mean dplyr::filter() or stats::filter()
@@ -90,7 +91,7 @@ knitr::write_bib(c(packages, "base"), file = here("software.bib"))
 # set up default knitr parameters
 # https://yihui.org/knitr/options/
 knitr::opts_chunk$set(
-  echo = FALSE, # Run code, show outputs (don't show code)
+  echo = TRUE, # Run code, show outputs (don't show code)
   fig.retina = 4,
   fig.width = 8,
   fig.path = paste0(here("results", "figures"), "/")
@@ -131,9 +132,7 @@ We plan on using data scources: precincts20 districts23, blockgroups2020
 | G20PRERTRU | ... | total votes for Trump in 2020 | ... | ... | ... | ... | ... |
 | G20PREDBID | ... | total votes for Biden in 2020 | ... | ... | ... | ... | ... |
 
-```{r, include = TRUE, eval = FALSE, echo = TRUE}
-library(sf)
-
+```{r, include = TRUE}
 precincts20 <- st_read(here("data","raw","public","districts.gpkg"), layer = "precincts20")
 ```
 
@@ -167,7 +166,7 @@ precincts20 <- st_read(here("data","raw","public","districts.gpkg"), layer = "pr
 | WHITE | ... | total white population (2020 census) | ... | ... | ... | ... | ... |
 | BLACK | ... | total black population (2020 census) | ... | ... | ... | ... | ... |
 
-```{r, include = TRUE, eval = FALSE, echo = TRUE}
+```{r, include = TRUE}
 districts23 <- st_read(here("data","raw","public","districts.gpkg"), layer = "districts23")
 ```
 
@@ -201,9 +200,7 @@ districts23 <- st_read(here("data","raw","public","districts.gpkg"), layer = "di
 | P4006N | ... | Total: Not Hispanic or Latino, Population of one race, Black or African American alone, 18 years or older | ... | ... | ... | ... | ... |
 | G20PREDBID | ... | Total institutionalized population in correctional facilities for adults 18 years or older | ... | ... | ... | ... | ... |
 
-```{r, include = TRUE, eval = FALSE, echo = TRUE}
-library(tidycensus)
-
+```{r, include = TRUE}
 census_metadata_file <- here("data", "metadata", "census2020pl_vars.csv")
 if(file.exists(census_metadata_file)){
   census2020pl_vars <- read.csv(census_metadata_file)
@@ -245,13 +242,13 @@ Modifiable Areal Unit Problem: demographic data is collected at both the distric
 
 Find the sum of Black or African American people by gathering all variables that include the term "Black".
 
-```{r eval = FALSE, echo = TRUE}
-library(tidyverse)
-
+```{r}
 black_vars <- census2020pl_vars |> 
   dplyr::filter(str_detect(name, "P3"),
                 str_detect(label, "Black")) |> 
   select(-concept)
+
+black_vars |> kable()
 ```
 
 Next, calculate new columns.
@@ -260,7 +257,7 @@ Next, calculate new columns.
 `PctBlack` : Percentage of people listed in `Black`
 `CheckPct` : sum of `P3_003N` and `Black` percentages, this value should not exceed 100%.
 
-```{r eval = FALSE, echo = TRUE}
+```{r}
 blockgroups_calc <- blockgroups |> 
   rowwise() |> 
   mutate(Black = sum(c_across(all_of(black_vars$name)))) |> 
@@ -273,76 +270,23 @@ blockgroups_calc <- blockgroups |>
 
 Save the results as blockgroups_calc.gpkg
 
-```{r eval=FALSE, echo = TRUE}
+```{r}
 st_write(blockgroups_calc, 
          here("data", "derived", "public", "blockgroups_calc.gpkg"),
          append=FALSE)
 ```
-Map Results
-
-```{r eval = FALSE, echo = TRUE}
-library(tmap)
-
-tm_shape(blockgroups_calc) + 
-  tm_polygons(
-    fill = "PctBlack",
-    col_alpha = 0.2,
-    lwd = 0.1,
-    col = "grey90"
-  )
-```
 
 ### Calculate District Variables
 
-Calculate the compactness of each district using the Polsby-Popper isoperimetric ratio through elipsoidal area and perimeter calculations.
+Calculate area and perimeter of districts
 
-```{r eval = FALSE, echo = TRUE}
+```{r}
 sf_use_s2(FALSE)
 
 districts23 <- districts23 |>
   mutate(
     area = st_area(geom),
-    perim = st_length(st_cast(st_cast(geom, "MULTIPOLYGON"), "MULTILINESTRING")),
-    ppir_compact = round(as.numeric((4 * pi * area) / perim^2),2)
-  )
-```
-
-Calculate the compactness of each district using the ratio of convex-hull area to actual area
-
-```{r eval = FALSE, echo = TRUE}
-sf_use_s2(FALSE)
-
-districts23_hull <- districts23 |> st_convex_hull()
-
-districts23_hull <- districts23_hull |>
-  mutate(
-    hullarea = st_area(geom)
-  )
-
-districts23 <- districts23 |>
-  mutate(
-    hullarea = districts23_hull$hullarea[match(DISTRICT, districts23_hull$DISTRICT)],
-    ch_compact = round(as.numeric(area / hullarea),2)
-  )
-```
-
-Calculate the compactness of each district using the ratio of minimum bounding circle area to actual area
-
-```{r eval = FALSE, echo = TRUE}
-library(lwgeom)
-sf_use_s2(FALSE)
-
-districts23_mbcircle <- districts23 |> st_minimum_bounding_circle()
-
-districts23_mbcircle <- districts23_mbcircle |>
-  mutate(
-    circlearea = st_area(geom)
-  )
-
-districts23 <- districts23 |>
-  mutate(
-    circlearea = districts23_mbcircle$circlearea[match(DISTRICT, districts23_mbcircle$DISTRICT)],
-    mbc_compact = round(as.numeric(area / circlearea),2)
+    perim = st_length(st_cast(st_cast(geom, "MULTIPOLYGON"), "MULTILINESTRING"))
   )
 ```
 
@@ -352,14 +296,14 @@ The intersection of voting precincts and districts was gathered, calculating the
 
 For area weighted re-aggregation, there is a level of bias stemming from the assumption that pieces of the geometry becoming fragmented are spatially homogenous. While this experiment acknowleges that this is not possible, an area weighted re-aggregation at a small scale of voting precinct or census block group minimizes this bias.
 
-```{r eval = FALSE, echo = TRUE}
+```{r}
 sf_use_s2(FALSE)
 
 precincts20 <- precincts20 |>
   st_transform(crs = 4269) |>
   mutate(
     precinctarea = st_area(geom),
-    total_vote = G20PRERTRU + G20PREDBID
+    total_vote = G20PRERTRU + G20PREDBID + G20PRELJOR + G20PREOWRI
   )
 
 precincts_int_districts <- st_intersection(precincts20, districts23) |>
@@ -388,17 +332,17 @@ Area weighted re-aggregation to gather Percent Black in each district. Using blo
 
 The intersection of census block groups and districts was gathered, calculating the area of each block group beforehand. Then an area weight was assigned to each fragment, where the black population and weighted total population is counted. Using these values to re-aggregate by district, I summarize by district to get demographics for each, getting percent black in each district.
 
-```{r eval = FALSE, echo = TRUE}
+```{r}
 sf_use_s2(FALSE)
 
 blockgroups_calc <- blockgroups_calc |>
   st_transform(crs = 4269) |>
   mutate(
-    blockarea = st_area(geometry),
+    blockarea = st_area(geom),
   )
 
 blocks_int_districts <- st_intersection(blockgroups_calc, districts23) |>
-  mutate(f_area = st_area(geometry),
+  mutate(f_area = st_area(geom),
          aw = as.numeric(f_area / blockarea),
          aw_black = aw * Black,
          aw_total = aw * Total)
@@ -421,19 +365,64 @@ districts23 <- districts23 |>
 
 ## Analysis
 
-Describe the methods of analysis that will directly test the hypotheses or provide results to answer the research questions.
-This section should explicitly define any spatial / statistical *models* and their *parameters*, including *grouping* criteria, *weighting* criteria, and *significance thresholds*.
-Also explain any follow-up analyses or validations.
+### Calculate Compactness
+
+Find compactness using the Polsby-Popper isoperimetric ratio
+
+```{r}
+districts23 <- districts23 |>
+  mutate(
+    ppir_compact = round(as.numeric((4 * pi * area) / perim^2),2)
+  )
+```
+
+Calculate the compactness of each district using the ratio of convex-hull area to actual area
+
+```{r}
+sf_use_s2(FALSE)
+
+districts23_hull <- districts23 |> st_convex_hull()
+
+districts23_hull <- districts23_hull |>
+  mutate(
+    hullarea = st_area(geom)
+  )
+
+districts23 <- districts23 |>
+  mutate(
+    hullarea = districts23_hull$hullarea[match(DISTRICT, districts23_hull$DISTRICT)],
+    ch_compact = round(as.numeric(area / hullarea),2)
+  )
+```
+
+Calculate the compactness of each district using the ratio of minimum bounding circle area to actual area
+
+```{r}
+sf_use_s2(FALSE)
+
+districts23_mbcircle <- districts23 |> st_minimum_bounding_circle()
+
+districts23_mbcircle <- districts23_mbcircle |>
+  mutate(
+    circlearea = st_area(geom)
+  )
+
+districts23 <- districts23 |>
+  mutate(
+    circlearea = districts23_mbcircle$circlearea[match(DISTRICT, districts23_mbcircle$DISTRICT)],
+    mbc_compact = round(as.numeric(area / circlearea),2)
+  )
+```
 
 ### Find if districts are abnormally black
 
 Using the convex hulls of the districts, we can perform area weighted re-aggregation on each for the block groups to find the percent black of areas surrounding the hull.
 
-```{r eval = FALSE, echo = TRUE}
+```{r}
 sf_use_s2(FALSE)
 
 blocks_int_districtshull <- st_intersection(blockgroups_calc, districts23_hull) |>
-  mutate(f_area = st_area(geometry),
+  mutate(f_area = st_area(geom),
          aw = as.numeric(f_area / hullarea),
          aw_black = aw * Black,
          aw_total = aw * Total)
@@ -454,100 +443,114 @@ districts23 <- districts23 |>
   )
 ```
 
-Now, I can calculate a metric for how unusually concentrated a district is with black voters through `pct_black - hull_pct_black`.
+Now, I can calculate a metric for how unusually concentrated a district is with black or non-black voters through `abs(pct_black - hull_pct_black)`.
 
-```{r eval = FALSE, echo = TRUE}
+```{r}
 districts23 <- districts23 |>
   mutate(
-    black_concentration_val = pct_black - hull_pct_black
+    concentration_val = abs(pct_black - hull_pct_black)
   )
 ```
 
 # Results
 
+### Where are districts placed
+
 Here are values for districts and their percentages of black voting-age people.
 
-```{r eval = FALSE, echo = TRUE}
-tm_shape(districts23) + 
+```{r}
+districts_labels <- tm_shape(districts23) +
+  tm_polygons(fill_alpha = 0,
+              col = "red") +
+  tm_labels(text = "DISTRICT",
+          col="red",
+          bgcol = "white",
+          bgcol_alpha = 0.5,
+          on_surface = TRUE,
+          just = c("center", "center")
+          )
+
+black_blocks <- tm_shape(blockgroups_calc) + 
   tm_polygons(
-    fill = "pct_black",
+    fill = "PctBlack",
     col_alpha = 0.2,
     lwd = 0.1,
     col = "grey90"
   )
+
+black_blocks +
+  districts_labels
 ```
 
 Here are values for districts and their percentages of democrat votes on main-ticket candidates in the 2020 presidential election.
 
-```{r eval = FALSE, echo = TRUE}
-tm_shape(districts23) + 
+```{r}
+precincts20 <- precincts20 |>
+  mutate(
+    pct_dem = G20PREDBID / total_vote
+  )
+
+dem_precincts <- tm_shape(precincts20) + 
   tm_polygons(
     fill = "pct_dem",
     col_alpha = 0.2,
     lwd = 0.1,
     col = "grey90"
   )
+
+dem_precincts +
+  districts_labels
 ```
 
-Here are values for districts and their compactness values found through the Polsby-Popper isoperimetric ratio.
+Here are values for districts on their score for black concentration. A higher number means black people or are more unusually concetrated in this district.
 
-```{r eval = FALSE, echo = TRUE}
-tm_shape(districts23) + 
+```{r}
+districts_representation <- tm_shape(districts23) + 
   tm_polygons(
-    fill = "ppir_compact",
+    fill = "concentration_val",
     col_alpha = 0.2,
     lwd = 0.1,
     col = "grey90"
   )
+
+districts_representation +
+  districts_labels
 ```
 
-Here are values for districts and their compactness values found through the ratio of area to convex hull area.
+Lastly here's a table with each District, and each of the calculated metrics.
 
-```{r eval = FALSE, echo = TRUE}
-tm_shape(districts23) + 
-  tm_polygons(
-    fill = "ch_compact",
-    col_alpha = 0.2,
-    lwd = 0.1,
-    col = "grey90"
-  )
+```{r}
+districts23 |> 
+  st_drop_geometry() |> 
+  select(DISTRICT, ppir_compact, ch_compact, mbc_compact, pct_dem,
+         pct_black, concentration_val) |>
+  kable()
 ```
 
-Here are values for districts and their compactness values found through the ratio of area to minimum bounding circle area.
+### How well does a compactness score show representation?
 
-```{r eval = FALSE, echo = TRUE}
-tm_shape(districts23) + 
-  tm_polygons(
-    fill = "mbc_compact",
-    col_alpha = 0.2,
-    lwd = 0.1,
-    col = "grey90"
-  )
-```
+Each of the three compactness scores ranks the scores of each district differently. As a result, it's unclear which score most aptly fits to the cacluated `concentration_val` statistic for representation. Here, each district is mapped by their concentration value and compactness score along each metric.
 
-Here are values for districts on their score for black concentration. A higher number means black people are more unusually concetrated in this district.
+```{r}
+districts23_results_plot <- districts23 |> 
+  st_drop_geometry() |> 
+  select(DISTRICT, pct_black, concentration_val, ppir_compact, ch_compact, mbc_compact) |> 
+  pivot_longer(cols = ends_with("compact"))
 
-```{r eval = FALSE, echo = TRUE}
-tm_shape(districts23) + 
-  tm_polygons(
-    fill = "black_concentration_val",
-    col_alpha = 0.2,
-    lwd = 0.1,
-    col = "grey90"
-  )
-```
+districts23_results_plot |> ggplot() +
+  aes(x = concentration_val, y = value) +
+  geom_smooth(method="lm", col = "grey30") +
+  geom_label(aes(label = DISTRICT, fill = pct_black)) +
+  scale_fill_distiller(type = "div", palette = "PRGn") +
 
-Lastly here's a table with Each Precinct, and each of these calculated metricts.
-
-```{r eval = FALSE, echo = TRUE}
-as_tibble(districts23 |> select(DISTRICT, ppir_compact, ch_compact, mbc_compact, pct_dem, pct_black, black_concentration_val))
+  facet_wrap(~name)
 ```
 
 # Discussion
 
-Here, you can see that districts 2 and 7 with the highest concentrations of black people over the age of 18 had the highest value of unusual concentration of black people, with an over 12% in black population percentage inside the district as compared to a district with the same shape as its convex hull.
+Here, you can see that districts 2 and 7 with the highest concentrations of black people over the age of 18 had the highest value of unusual concentration of black people, with an over 12% difference in black population percentage inside the district as compared to a district with the same shape as its convex hull.
 
-While compactness might not be a great indicator of whether a district was unfairly created, statistics like these can illuminate the advantages for some and disadvantages for others maps like these create.
+Overall, compactness metrics did not show this representation value well. While compactness might not be a great indicator of whether a district was unfairly created, statistics like these can illuminate the advantages for some and disadvantages for others maps like these create.
 
 # Integrity Statement
 
