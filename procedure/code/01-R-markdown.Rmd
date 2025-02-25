@@ -46,12 +46,14 @@ I plan on using:
   - the `tidycensus` package for gathering census data
   - the `lwgeom` package for minimum bounding circles
   - the `knitr` package for better table displays
+  - the `patchwork` package allows for multiple graphs in one display
+  - the `cowplot` package allows for extraction of plot legends
 
 ```{r environment-setup, include = FALSE, echo = TRUE}
 # record all the packages you are using here
 # this includes any calls to library(), require(),
 # and double colons such as here::i_am()
-packages <- c("tidyverse", "here", "sf", "tmap", "tidycensus", "lwgeom", "knitr")
+packages <- c("tidyverse", "here", "sf", "tmap", "tidycensus", "lwgeom", "knitr","patchwork","cowplot")
 
 # force all conflicts to become errors
 # if you load dplyr and use filter(), R has to guess whether you mean dplyr::filter() or stats::filter()
@@ -529,21 +531,39 @@ districts23 |>
 
 ### How well does a compactness score show representation?
 
-Each of the three compactness scores ranks the scores of each district differently. As a result, it's unclear which score most aptly fits to the cacluated `concentration_val` statistic for representation. Here, each district is mapped by their concentration value and compactness score along each metric.
+Each of the three compactness scores ranks the scores of each district differently. As a result, it's unclear which score most aptly fits to the cacluated `concentration_val` statistic for representation. Here, each compactness metric is mapped against each other to find correlation with both each other and representation.
 
 ```{r}
-districts23_results_plot <- districts23 |> 
-  st_drop_geometry() |> 
-  select(DISTRICT, pct_black, concentration_val, ppir_compact, ch_compact, mbc_compact) |> 
-  pivot_longer(cols = ends_with("compact"))
-
-districts23_results_plot |> ggplot() +
-  aes(x = concentration_val, y = value) +
+districts23_results_plot1 <- districts23 |> ggplot() +
+  aes(x = ch_compact, y = ppir_compact) +
   geom_smooth(method="lm", col = "grey30") +
   geom_label(aes(label = DISTRICT, fill = pct_black)) +
   scale_fill_distiller(type = "div", palette = "PRGn") +
+  theme(legend.position = "none")
 
-  facet_wrap(~name)
+districts23_results_plot2 <- districts23 |> ggplot() +
+  aes(x = mbc_compact, y = ch_compact) +
+  geom_smooth(method="lm", col = "grey30") +
+  geom_label(aes(label = DISTRICT, fill = pct_black)) +
+  scale_fill_distiller(type = "div", palette = "PRGn") +
+  theme(legend.position = "none")
+
+districts23_results_plot3 <- districts23 |> ggplot() +
+  aes(x = ppir_compact, y = mbc_compact) +
+  geom_smooth(method="lm", col = "grey30") +
+  geom_label(aes(label = DISTRICT, fill = pct_black)) +
+  scale_fill_distiller(type = "div", palette = "PRGn") +
+  theme(legend.position = "none")
+
+legend_plot <- districts23 |> ggplot(aes(x = ppir_compact, y = ch_compact, fill = concentration_val)) +
+  geom_point() +
+  scale_fill_distiller(type = "div", palette = "PRGn") +
+  theme_minimal() +
+  theme(legend.position = "right") 
+
+legend <- patchwork::wrap_elements(get_legend(legend_plot)) 
+
+(districts23_results_plot1 + districts23_results_plot2) / (districts23_results_plot3 + legend)
 ```
 
 # Discussion
